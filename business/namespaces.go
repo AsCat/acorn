@@ -1,0 +1,211 @@
+package business
+
+import (
+	"regexp"
+
+	osproject_v1 "github.com/openshift/api/project/v1"
+	core_v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+
+	"github.com/AsCat/acorn/config"
+	"github.com/AsCat/acorn/kubernetes"
+	"github.com/AsCat/acorn/log"
+	"github.com/AsCat/acorn/models"
+	"github.com/AsCat/acorn/prometheus/internalmetrics"
+)
+
+// Namespace deals with fetching k8s namespaces / OpenShift projects and convert to kiali model
+type NamespaceService struct {
+	k8s                    kubernetes.IstioClientInterface
+	hasProjects            bool
+	isAccessibleNamespaces map[string]bool
+}
+
+type AccessibleNamespaceError struct {
+	msg string
+}
+
+func (in *AccessibleNamespaceError) Error() string {
+	return in.msg
+}
+
+func IsAccessibleError(err error) bool {
+	_, isAccessibleError := err.(*AccessibleNamespaceError)
+	return isAccessibleError
+}
+
+func NewNamespaceService(k8s kubernetes.IstioClientInterface) NamespaceService {
+
+	var hasProjects bool
+
+	if k8s != nil && k8s.IsOpenShift() {
+		hasProjects = true
+	} else {
+		hasProjects = false
+	}
+
+	ans := config.Get().Deployment.AccessibleNamespaces
+	isAccessibleNamespaces := make(map[string]bool, len(ans))
+	for _, ns := range ans {
+		isAccessibleNamespaces[ns] = true
+	}
+
+	return NamespaceService{
+		k8s:                    k8s,
+		hasProjects:            hasProjects,
+		isAccessibleNamespaces: isAccessibleNamespaces,
+	}
+}
+
+// Returns a list of the given namespaces / projects
+func (in *NamespaceService) GetNamespaces() ([]models.Namespace, error) {
+	var err error
+	promtimer := internalmetrics.GetGoFunctionMetric("business", "NamespaceService", "GetNamespaces")
+	defer promtimer.ObserveNow(&err)
+
+	if kialiCache != nil {
+		if ns := kialiCache.GetNamespaces(in.k8s.GetToken()); ns != nil {
+			return ns, nil
+		}
+	}
+
+	labelSelector := config.Get().API.Namespaces.LabelSelector
+
+	namespaces := []models.Namespace{}
+	_, queryAllNamespaces := in.isAccessibleNamespaces["**"]
+	// If we are running in OpenShift, we will use the project names since these are the list of accessible namespaces
+	if in.hasProjects {
+		projects, err2 := in.k8s.GetProjects(labelSelector)
+		if err2 == nil {
+			// Everything is good, return the projects we got from OpenShift / kube-project
+			if queryAllNamespaces {
+				namespaces = models.CastProjectCollection(projects)
+			} else {
+				filteredProjects := make([]osproject_v1.Project, 0)
+				for _, project := range projects {
+					if _, isAccessible := in.isAccessibleNamespaces[project.Name]; isAccessible {
+						filteredProjects = append(filteredProjects, project)
+					}
+				}
+				namespaces = models.CastProjectCollection(filteredProjects)
+			}
+		}
+	} else {
+		// if the accessible namespaces define a distinct list of namespaces, use only those.
+		// If accessible namespaces include the special "**" (meaning all namespaces) ask k8s for them.
+		// Note that "**" requires cluster role permission to list all namespaces.
+		accessibleNamespaces := config.Get().Deployment.AccessibleNamespaces
+		if queryAllNamespaces {
+			nss, err := in.k8s.GetNamespaces(labelSelector)
+			if err != nil {
+				return nil, err
+			}
+			namespaces = models.CastNamespaceCollection(nss)
+		} else {
+			k8sNamespaces := make([]core_v1.Namespace, 0)
+			for _, ans := range accessibleNamespaces {
+				k8sNs, err := in.k8s.GetNamespace(ans)
+				if err != nil {
+					// If a namespace is not found, then we skip it from the list of namespaces
+					if errors.IsNotFound(err) {
+						log.Warningf("Kiali has an accessible namespace [%s] which doesn't exist", ans)
+					} else {
+						return nil, err
+					}
+				} else {
+					k8sNamespaces = append(k8sNamespaces, *k8sNs)
+				}
+			}
+			namespaces = models.CastNamespaceCollection(k8sNamespaces)
+		}
+	}
+
+	result := namespaces
+	excludes := config.Get().API.Namespaces.Exclude
+	if len(excludes) > 0 {
+		result = []models.Namespace{}
+	NAMESPACES:
+		for _, namespace := range namespaces {
+			for _, excludePattern := range excludes {
+				if match, _ := regexp.MatchString(excludePattern, namespace.Name); match {
+					continue NAMESPACES
+				}
+			}
+			result = append(result, namespace)
+		}
+	}
+
+	if kialiCache != nil {
+		kialiCache.SetNamespaces(in.k8s.GetToken(), result)
+	}
+
+	return result, nil
+}
+
+func (in *NamespaceService) isAccessibleNamespace(namespace string) bool {
+	_, queryAllNamespaces := in.isAccessibleNamespaces["**"]
+	if queryAllNamespaces {
+		return true
+	}
+	_, isAccessible := in.isAccessibleNamespaces[namespace]
+	return isAccessible
+}
+
+func (in *NamespaceService) isExcludedNamespace(namespace string) bool {
+	excludes := config.Get().API.Namespaces.Exclude
+	if len(excludes) == 0 {
+		return false
+	}
+	for _, excludePattern := range excludes {
+		if match, _ := regexp.MatchString(excludePattern, namespace); match {
+			return true
+		}
+	}
+	return false
+}
+
+// GetNamespace returns the definition of the specified namespace.
+func (in *NamespaceService) GetNamespace(namespace string) (*models.Namespace, error) {
+	var err error
+	promtimer := internalmetrics.GetGoFunctionMetric("business", "NamespaceService", "GetNamespace")
+	defer promtimer.ObserveNow(&err)
+
+	// Cache already has included/excluded namespaces applied
+	if kialiCache != nil {
+		if ns := kialiCache.GetNamespace(in.k8s.GetToken(), namespace); ns != nil {
+			return ns, nil
+		}
+	}
+
+	if !in.isAccessibleNamespace(namespace) {
+		return nil, &AccessibleNamespaceError{msg: "Namespace [" + namespace + "] is not accessible for Kiali"}
+	}
+
+	if in.isExcludedNamespace(namespace) {
+		return nil, &AccessibleNamespaceError{msg: "Namespace [" + namespace + "] is excluded for Kiali"}
+	}
+
+	var result models.Namespace
+	if in.hasProjects {
+		var project *osproject_v1.Project
+		project, err = in.k8s.GetProject(namespace)
+		if err != nil {
+			return nil, err
+		}
+		result = models.CastProject(*project)
+	} else {
+		var ns *core_v1.Namespace
+		ns, err = in.k8s.GetNamespace(namespace)
+		if err != nil {
+			return nil, err
+		}
+		result = models.CastNamespace(*ns)
+	}
+	// Refresh cache in case of cache expiration
+	if kialiCache != nil {
+		if _, err = in.GetNamespaces(); err != nil {
+			return nil, err
+		}
+	}
+	return &result, nil
+}

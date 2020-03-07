@@ -1,0 +1,25 @@
+istio_component_namespaces:
+  grafana: istio-system
+  tracing: istio-system
+  pilot: istio-system
+  prometheus: istio-system
+istio_namespace: istio-system
+auth:
+  strategy: login
+deployment:
+  accessible_namespaces: ['**']
+server:
+  port: 20002
+  web_root: /kiali
+  static_content_root_directory: /root/go/src/github.com/AsCat/acorn/console
+external_services:
+  istio:
+    url_service_version: http://istio-pilot.istio-system:8080/version
+  tracing:
+    url:
+    in_cluster_url: http://tracing/jaeger
+  grafana:
+    url:
+    in_cluster_url: http://grafana:3000
+  prometheus:
+    url: http://prometheus.istio-system:9090
