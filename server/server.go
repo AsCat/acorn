@@ -2,6 +2,9 @@ package server
 
 import (
 	"fmt"
+
+	"github.com/NYTimes/gziphandler"
+
 	"github.com/AsCat/acorn/config"
 	"github.com/AsCat/acorn/log"
 	"github.com/AsCat/acorn/routing"
@@ -22,9 +25,9 @@ func NewServer() *Server {
 	}
 
 	handler := http.Handler(router)
-	//if conf.Server.GzipEnabled {
-	//	handler = configureGzipHandler(router)
-	//}
+	if conf.Server.GzipEnabled {
+		handler = configureGzipHandler(router)
+	}
 
 	// The Kiali server has only a single http server ever during its lifetime. But to support
 	// testing that wants to start multiple servers over the lifetime of the process,
@@ -66,6 +69,13 @@ func (s *Server) Start() {
 	//}
 }
 
+// Stop the HTTP server
+func (s *Server) Stop() {
+	//business.Stop()
+	log.Infof("Server endpoint will stop at [%v]", s.httpServer.Addr)
+	s.httpServer.Close()
+}
+
 func corsAllowed(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -74,9 +84,18 @@ func corsAllowed(next http.Handler) http.Handler {
 	})
 }
 
-// Stop the HTTP server
-func (s *Server) Stop() {
-	//business.Stop()
-	log.Infof("Server endpoint will stop at [%v]", s.httpServer.Addr)
-	s.httpServer.Close()
+func configureGzipHandler(handler http.Handler) http.Handler {
+	contentTypeOption := gziphandler.ContentTypes([]string{
+		"application/javascript",
+		"application/json",
+		"image/svg+xml",
+		"text/css",
+		"text/html",
+	})
+	if handlerFunc, err := gziphandler.GzipHandlerWithOpts(contentTypeOption); err == nil {
+		return handlerFunc(handler)
+	} else {
+		// This could happen by a wrong configuration being sent to GzipHandlerWithOpts
+		panic(err)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/AsCat/acorn/config"
+	"github.com/AsCat/acorn/config/security"
 	"github.com/AsCat/acorn/log"
 	"github.com/AsCat/acorn/server"
 	"github.com/AsCat/acorn/status"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Identifies the build. These are set via ldflags during the build (see Makefile).
@@ -80,6 +82,11 @@ func main() {
 	server := server.NewServer()
 	server.Start()
 
+	// wait for the secret when a secret is required
+	if config.Get().Auth.Strategy == config.AuthStrategyLogin {
+		waitForSecret()
+	}
+
 	// wait forever, or at least until we are told to exit
 	waitForTermination()
 
@@ -95,6 +102,45 @@ func CheckLDAPConfiguration(auth config.AuthConfig) bool {
 		return false
 	}
 	return true
+}
+
+func waitForSecret() {
+	foundSecretChan := make(chan security.Credentials)
+	go func() {
+		errs := 0
+		for {
+			username, uErr := ioutil.ReadFile(config.LoginSecretUsername)
+			passphrase, pErr := ioutil.ReadFile(config.LoginSecretPassphrase)
+
+			if config.Get().Auth.LoginSecretUsername != "" {
+				username, uErr = ioutil.ReadFile(config.Get().Auth.LoginSecretUsername)
+			}
+			if config.Get().Auth.LoginSecretPassphrase != "" {
+				passphrase, pErr = ioutil.ReadFile(config.Get().Auth.LoginSecretPassphrase)
+			}
+
+			if uErr == nil && pErr == nil {
+				if string(username) != "" && string(passphrase) != "" {
+					log.Info("Secret is now available.")
+					foundSecretChan <- security.Credentials{
+						Username:   string(username),
+						Passphrase: string(passphrase),
+					}
+					break
+				}
+			}
+			errs++
+			if (errs % 5) == 0 {
+				log.Warning("Kiali is missing a secret that contains both 'username' and 'passphrase'")
+			}
+			time.Sleep(2 * time.Second)
+		}
+	}()
+	secret := <-foundSecretChan
+	cfg := config.Get()
+	cfg.Server.Credentials.Username = secret.Username
+	cfg.Server.Credentials.Passphrase = secret.Passphrase
+	config.Set(cfg)
 }
 
 func waitForTermination() {

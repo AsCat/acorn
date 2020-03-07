@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"github.com/AsCat/acorn/business"
 	"github.com/AsCat/acorn/ldap"
 	"net/http"
 	"strings"
@@ -184,25 +185,25 @@ func checkLDAPSession(w http.ResponseWriter, r *http.Request) (int, string) {
 }
 
 func checkTokenSession(w http.ResponseWriter, r *http.Request) (int, string) {
-	//tokenString := getTokenStringFromRequest(r)
-	//if claims, err := config.GetTokenClaimsIfValid(tokenString); err != nil {
-	//	log.Warningf("Token is invalid: %s", err.Error())
-	//} else {
-	//	business, err := business.Get(claims.SessionId)
-	//	if err != nil {
-	//		log.Warning("Could not get the business layer : ", err)
-	//		return http.StatusInternalServerError, ""
-	//	}
-	//
-	//	_, err = business.Namespace.GetNamespaces()
-	//	if err == nil {
-	//		// Internal header used to propagate the subject of the request for audit purposes
-	//		r.Header.Add("Kiali-User", claims.Subject)
-	//		return http.StatusOK, claims.SessionId
-	//	}
-	//
-	//	log.Warning("Token error: ", err)
-	//}
+	tokenString := getTokenStringFromRequest(r)
+	if claims, err := config.GetTokenClaimsIfValid(tokenString); err != nil {
+		log.Warningf("Token is invalid: %s", err.Error())
+	} else {
+		business, err := business.Get(claims.SessionId)
+		if err != nil {
+			log.Warning("Could not get the business layer : ", err)
+			return http.StatusInternalServerError, ""
+		}
+
+		_, err = business.Namespace.GetNamespaces()
+		if err == nil {
+			// Internal header used to propagate the subject of the request for audit purposes
+			r.Header.Add("Kiali-User", claims.Subject)
+			return http.StatusOK, claims.SessionId
+		}
+
+		log.Warning("Token error: ", err)
+	}
 
 	return http.StatusUnauthorized, ""
 }
@@ -234,8 +235,8 @@ func (aHandler AuthenticationHandler) Handle(next http.Handler) http.Handler {
 		var token string
 
 		switch conf.Auth.Strategy {
-		//case config.AuthStrategyOpenshift:
-		//	statusCode, token = checkOpenshiftSession(w, r)
+		case config.AuthStrategyOpenshift:
+			statusCode, token = checkOpenshiftSession(w, r)
 		case config.AuthStrategyLogin:
 			statusCode = checkKialiSession(w, r)
 			token = aHandler.saToken
@@ -272,4 +273,28 @@ func (aHandler AuthenticationHandler) HandleUnauthenticated(next http.Handler) h
 		context := context.WithValue(r.Context(), "token", "")
 		next.ServeHTTP(w, r.WithContext(context))
 	})
+}
+
+func checkOpenshiftSession(w http.ResponseWriter, r *http.Request) (int, string) {
+	tokenString := getTokenStringFromRequest(r)
+	if claims, err := config.GetTokenClaimsIfValid(tokenString); err != nil {
+		log.Warningf("Token is invalid: %s", err.Error())
+	} else {
+		business, err := business.Get(claims.SessionId)
+		if err != nil {
+			log.Warning("Could not get the business layer : ", err)
+			return http.StatusInternalServerError, ""
+		}
+
+		err = business.OpenshiftOAuth.ValidateToken(claims.SessionId)
+		if err == nil {
+			// Internal header used to propagate the subject of the request for audit purposes
+			r.Header.Add("Kiali-User", claims.Subject)
+			return http.StatusOK, claims.SessionId
+		}
+
+		log.Warning("Token error: ", err)
+	}
+
+	return http.StatusUnauthorized, ""
 }

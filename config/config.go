@@ -227,8 +227,10 @@ type ApiNamespacesConfig struct {
 
 // AuthConfig provides details on how users are to authenticate
 type AuthConfig struct {
-	LDAP     LDAPConfig `yaml:"ldap,omitempty"`
-	Strategy string     `yaml:"strategy,omitempty"`
+	LDAP                  LDAPConfig `yaml:"ldap,omitempty"`
+	Strategy              string     `yaml:"strategy,omitempty"`
+	LoginSecretUsername   string     `yaml:"login_secret_username,omitempty"`
+	LoginSecretPassphrase string     `yaml:"login_secret_passphrase,omitempty"`
 }
 
 // LDAPConfig provides the details of the LDAP related configuration
@@ -296,7 +298,9 @@ func NewConfig() (c *Config) {
 			},
 		},
 		Auth: AuthConfig{
-			Strategy: "login",
+			Strategy:              "login",
+			LoginSecretUsername:   "",
+			LoginSecretPassphrase: "",
 		},
 		Deployment: DeploymentConfig{
 			AccessibleNamespaces: []string{"**"},

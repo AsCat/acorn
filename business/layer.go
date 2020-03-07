@@ -13,7 +13,8 @@ import (
 
 // Layer is a container for fast access to inner services
 type Layer struct {
-	Namespace NamespaceService
+	Namespace      NamespaceService
+	OpenshiftOAuth OpenshiftOAuthService
 }
 
 // Global clientfactory and prometheus clients.
