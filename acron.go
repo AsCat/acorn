@@ -45,8 +45,8 @@ func main() {
 	validateFlags()
 
 	// log startup information
-	log.Infof("Kiali: Version: %v, Commit: %v\n", version, commitHash)
-	log.Debugf("Kiali: Command line: [%v]", strings.Join(os.Args, " "))
+	log.Infof("Acorn: Version: %v, Commit: %v\n", version, commitHash)
+	log.Debugf("Acorn: Command line: [%v]", strings.Join(os.Args, " "))
 
 	// load config file if specified, otherwise, rely on environment variables to configure us
 	if *argConfigFile != "" {
@@ -59,14 +59,14 @@ func main() {
 		log.Infof("No configuration file specified. Will rely on environment for configuration.")
 		config.Set(config.NewConfig())
 	}
-	log.Tracef("Kiali Configuration:\n%s", config.Get())
+	log.Tracef("Acorn Configuration:\n%s", config.Get())
 
 	if err := validateConfig(); err != nil {
 		glog.Fatal(err)
 	}
 
 	consoleVersion := determineConsoleVersion()
-	log.Infof("Kiali: Console version: %v", consoleVersion)
+	log.Infof("Acorn: Console version: %v", consoleVersion)
 
 	status.Put(status.ConsoleVersion, consoleVersion)
 	status.Put(status.CoreVersion, version)
@@ -131,7 +131,7 @@ func waitForSecret() {
 			}
 			errs++
 			if (errs % 5) == 0 {
-				log.Warning("Kiali is missing a secret that contains both 'username' and 'passphrase'")
+				log.Warning("Acorn is missing a secret that contains both 'username' and 'passphrase'")
 			}
 			time.Sleep(2 * time.Second)
 		}
@@ -193,11 +193,11 @@ func validateConfig() error {
 	if auth.Strategy == config.AuthStrategyLogin {
 		creds := config.Get().Server.Credentials
 		if creds.Username == "" && creds.Passphrase == "" {
-			// This won't cause Kiali to abort, but users won't be able to log in, so immediately log a warning
+			// This won't cause Acorn to abort, but users won't be able to log in, so immediately log a warning
 			log.Warningf("Credentials are missing. Create a proper secret. Please refer to the documentation for more details.")
 		}
 	} else if auth.Strategy == config.AuthStrategyAnonymous {
-		log.Warningf("Kiali auth strategy is configured for anonymous access - users will not be authenticated.")
+		log.Warningf("Acorn auth strategy is configured for anonymous access - users will not be authenticated.")
 	} else if auth.Strategy == config.AuthStrategyLDAP && !CheckLDAPConfiguration(auth) {
 		return fmt.Errorf("Auth strategy is LDAP but there is no LDAP configuration")
 	}
@@ -241,7 +241,7 @@ func determineContainerVersion(defaultVersion string) string {
 	return v
 }
 
-// configToJS generates env.js file from Kiali config
+// configToJS generates env.js file from Acorn config
 func configToJS() {
 	log.Info("Generating env.js from config")
 	path, _ := filepath.Abs("./console/env.js")
