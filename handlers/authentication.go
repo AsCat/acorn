@@ -2,15 +2,20 @@ package handlers
 
 import (
 	"context"
-	"github.com/AsCat/acorn/business"
-	"github.com/AsCat/acorn/ldap"
+	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/AsCat/acorn/business"
 	"github.com/AsCat/acorn/config"
 	"github.com/AsCat/acorn/kubernetes"
+	"github.com/AsCat/acorn/ldap"
 	"github.com/AsCat/acorn/log"
+	"github.com/AsCat/acorn/util"
+	"github.com/dgrijalva/jwt-go"
 )
 
 const (
@@ -135,6 +140,238 @@ func performKialiAuthentication(w http.ResponseWriter, r *http.Request) bool {
 	http.SetCookie(w, &tokenCookie)
 
 	RespondWithJSONIndent(w, http.StatusOK, TokenResponse{Token: token.Token, ExpiresOn: token.ExpiresOn.Format(time.RFC1123Z), Username: user})
+	return true
+}
+
+func performOpenshiftAuthentication(w http.ResponseWriter, r *http.Request) bool {
+	err := r.ParseForm()
+
+	if err != nil {
+		RespondWithJSONIndent(w, http.StatusInternalServerError, fmt.Errorf("error parsing form info: %+v", err))
+		return false
+	}
+
+	token := r.Form.Get("access_token")
+	expiresIn := r.Form.Get("expires_in")
+	if token == "" || expiresIn == "" {
+		RespondWithError(w, http.StatusInternalServerError, "Token is empty or invalid.")
+		return false
+	}
+
+	expiresInNumber, err := strconv.Atoi(expiresIn)
+	if err != nil {
+		RespondWithDetailedError(w, http.StatusInternalServerError, "Token is empty or invalid.", err.Error())
+		return false
+	}
+
+	expiresOn := time.Now().Add(time.Second * time.Duration(expiresInNumber))
+
+	business, err := getBusiness(r)
+	if err != nil {
+		RespondWithDetailedError(w, http.StatusInternalServerError, "Error retrieving the OAuth package (getting business layer).", err.Error())
+		return false
+	}
+
+	err = business.OpenshiftOAuth.ValidateToken(token)
+	if err != nil {
+		RespondWithDetailedError(w, http.StatusUnauthorized, "Token is not valid or is expired.", err.Error())
+		return false
+	}
+
+	user, err := business.OpenshiftOAuth.GetUserInfo(token)
+	if err != nil {
+		RespondWithDetailedError(w, http.StatusUnauthorized, "Token is not valid or is expired.", err.Error())
+		return false
+	}
+
+	tokenClaims := config.IanaClaims{
+		SessionId: token,
+		StandardClaims: jwt.StandardClaims{
+			Subject:   user.Metadata.Name,
+			ExpiresAt: expiresOn.Unix(),
+			Issuer:    config.AuthStrategyOpenshiftIssuer,
+		},
+	}
+	tokenString, err := config.GetSignedTokenString(tokenClaims)
+	if err != nil {
+		RespondWithJSONIndent(w, http.StatusInternalServerError, err)
+		return false
+	}
+
+	tokenCookie := http.Cookie{
+		Name:     config.TokenCookieName,
+		Value:    tokenString,
+		Expires:  expiresOn,
+		HttpOnly: true,
+		// SameSite: http.SameSiteStrictMode, ** Commented out because unsupported in go < 1.11
+	}
+	http.SetCookie(w, &tokenCookie)
+
+	RespondWithJSONIndent(w, http.StatusOK, TokenResponse{Token: tokenString, ExpiresOn: expiresOn.Format(time.RFC1123Z), Username: user.Metadata.Name})
+	return true
+}
+
+func performTokenAuthentication(w http.ResponseWriter, r *http.Request) bool {
+	err := r.ParseForm()
+
+	if err != nil {
+		RespondWithDetailedError(w, http.StatusInternalServerError, "Error parsing form data from client", err.Error())
+		return false
+	}
+
+	token := r.Form.Get("token")
+
+	if token == "" {
+		RespondWithError(w, http.StatusInternalServerError, "Token is empty.")
+		return false
+	}
+
+	business, err := business.Get(token)
+	if err != nil {
+		RespondWithDetailedError(w, http.StatusInternalServerError, "Error instantiating the business layer", err.Error())
+		return false
+	}
+
+	// Using the namespaces API to check if token is valid. In Kubernetes, the version API seems to allow
+	// anonymous access, so it's not feasible to use the version API for token verification.
+	_, err = business.Namespace.GetNamespaces()
+	if err != nil {
+		RespondWithDetailedError(w, http.StatusUnauthorized, "Token is not valid or is expired", err.Error())
+		return false
+	}
+
+	// Now that we know that the ServiceAccount token is valid, parse/decode it to extract
+	// the name of the service account. The "subject" is passed to the front-end to be displayed.
+	tokenSubject := "token" // Set a default value
+
+	parsedClusterToken, _, err := new(jwt.Parser).ParseUnverified(token, &jwt.StandardClaims{})
+	if err == nil {
+		tokenSubject = parsedClusterToken.Claims.(*jwt.StandardClaims).Subject
+		tokenSubject = strings.TrimPrefix(tokenSubject, "system:serviceaccount:") // Shorten the subject displayed in UI.
+	}
+
+	// Build the Kiali token
+	timeExpire := util.Clock.Now().Add(time.Second * time.Duration(config.Get().LoginToken.ExpirationSeconds))
+	tokenClaims := config.IanaClaims{
+		SessionId: token,
+		StandardClaims: jwt.StandardClaims{
+			Subject:   tokenSubject,
+			ExpiresAt: timeExpire.Unix(),
+			Issuer:    config.AuthStrategyTokenIssuer,
+		},
+	}
+	tokenString, err := config.GetSignedTokenString(tokenClaims)
+	if err != nil {
+		RespondWithError(w, http.StatusInternalServerError, err.Error())
+		return false
+	}
+
+	tokenCookie := http.Cookie{
+		Name:     config.TokenCookieName,
+		Value:    tokenString,
+		Expires:  timeExpire,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	}
+	http.SetCookie(w, &tokenCookie)
+
+	RespondWithJSONIndent(w, http.StatusOK, TokenResponse{Token: tokenString, ExpiresOn: timeExpire.Format(time.RFC1123Z), Username: tokenSubject})
+	return true
+}
+
+func checkOpenshiftSession(w http.ResponseWriter, r *http.Request) (int, string) {
+	tokenString := getTokenStringFromRequest(r)
+	if claims, err := config.GetTokenClaimsIfValid(tokenString); err != nil {
+		log.Warningf("Token is invalid: %s", err.Error())
+	} else {
+		business, err := business.Get(claims.SessionId)
+		if err != nil {
+			log.Warning("Could not get the business layer : ", err)
+			return http.StatusInternalServerError, ""
+		}
+
+		err = business.OpenshiftOAuth.ValidateToken(claims.SessionId)
+		if err == nil {
+			// Internal header used to propagate the subject of the request for audit purposes
+			r.Header.Add("Kiali-User", claims.Subject)
+			return http.StatusOK, claims.SessionId
+		}
+
+		log.Warning("Token error: ", err)
+	}
+
+	return http.StatusUnauthorized, ""
+}
+
+func performOpenshiftLogout(r *http.Request) (int, error) {
+	tokenString := getTokenStringFromRequest(r)
+	if tokenString == "" {
+		// No token on logout, so we assume we're already logged out
+		return http.StatusUnauthorized, errors.New("Already logged out")
+	}
+	if claims, err := config.GetTokenClaimsIfValid(tokenString); err != nil {
+		log.Warningf("Token is invalid: %s", err.Error())
+		return http.StatusInternalServerError, err
+	} else {
+		business, err := business.Get(claims.SessionId)
+		if err != nil {
+			log.Warning("Could not get the business layer : ", err)
+			return http.StatusInternalServerError, err
+		}
+
+		err = business.OpenshiftOAuth.Logout(claims.SessionId)
+		if err != nil {
+			log.Warning("Could not log out of OpenShift: ", err)
+			return http.StatusInternalServerError, err
+		}
+
+		return http.StatusNoContent, nil
+	}
+}
+
+// performLDAPAuthentication is to authenticate user using LDAP
+func performLDAPAuthentication(w http.ResponseWriter, r *http.Request) bool {
+	//Handle request correlation ID
+	conf := config.Get()
+	var token ldap.Token
+	var username string
+	var user ldap.User
+	var tknErr error
+	oldToken := getTokenStringFromRequest(r)
+	if len(oldToken) == 0 {
+		var err error
+		// fixme: ascat commented here for debug
+		//user, err = ldap.ValidateUser(r, conf.Auth)
+		if err != nil {
+			RespondWithCode(w, http.StatusUnauthorized)
+			return false
+		}
+		username = user.Username
+	} else {
+		userInfo, err := ldap.ValidateToken(oldToken)
+		if err != nil {
+			log.Warning("Token error: ", err)
+			return false
+		}
+		user = *userInfo.Status.User
+		username = user.Username
+	}
+
+	token, tknErr = ldap.GenerateToken(user, conf.Auth)
+	if tknErr != nil {
+		RespondWithJSONIndent(w, http.StatusInternalServerError, tknErr)
+		return false
+	}
+
+	tokenCookie := http.Cookie{
+		Name:     config.TokenCookieName,
+		Value:    token.JWT,
+		Expires:  token.Expiry,
+		HttpOnly: true,
+	}
+	http.SetCookie(w, &tokenCookie)
+
+	RespondWithJSONIndent(w, http.StatusOK, TokenResponse{Token: token.JWT, ExpiresOn: token.Expiry.Format(time.RFC1123Z), Username: username})
 	return true
 }
 
@@ -275,26 +512,96 @@ func (aHandler AuthenticationHandler) HandleUnauthenticated(next http.Handler) h
 	})
 }
 
-func checkOpenshiftSession(w http.ResponseWriter, r *http.Request) (int, string) {
-	tokenString := getTokenStringFromRequest(r)
-	if claims, err := config.GetTokenClaimsIfValid(tokenString); err != nil {
-		log.Warningf("Token is invalid: %s", err.Error())
-	} else {
-		business, err := business.Get(claims.SessionId)
+func Authenticate(w http.ResponseWriter, r *http.Request) {
+	conf := config.Get()
+	switch conf.Auth.Strategy {
+	case config.AuthStrategyOpenshift:
+		performOpenshiftAuthentication(w, r)
+	case config.AuthStrategyLogin:
+		if !performKialiAuthentication(w, r) {
+			writeAuthenticateHeader(w, r)
+		}
+	case config.AuthStrategyToken:
+		performTokenAuthentication(w, r)
+	case config.AuthStrategyAnonymous:
+		log.Warning("Authentication attempt with anonymous access enabled.")
+	case config.AuthStrategyLDAP:
+		// Code to do LDAP Authentication
+		if !performLDAPAuthentication(w, r) {
+			writeAuthenticateHeader(w, r)
+		}
+	default:
+		message := fmt.Sprintf("Cannot authenticate users, because strategy <%s> is unknown.", conf.Auth.Strategy)
+		log.Errorf(message)
+		RespondWithError(w, http.StatusInternalServerError, message)
+	}
+}
+
+func AuthenticationInfo(w http.ResponseWriter, r *http.Request) {
+	var response AuthInfo
+
+	conf := config.Get()
+
+	response.Strategy = conf.Auth.Strategy
+
+	switch conf.Auth.Strategy {
+	case config.AuthStrategyOpenshift:
+		business, err := getBusiness(r)
 		if err != nil {
-			log.Warning("Could not get the business layer : ", err)
-			return http.StatusInternalServerError, ""
+			RespondWithDetailedError(w, http.StatusInternalServerError, "Error authenticating (getting business layer)", err.Error())
+			return
 		}
 
-		err = business.OpenshiftOAuth.ValidateToken(claims.SessionId)
-		if err == nil {
-			// Internal header used to propagate the subject of the request for audit purposes
-			r.Header.Add("Kiali-User", claims.Subject)
-			return http.StatusOK, claims.SessionId
+		metadata, err := business.OpenshiftOAuth.Metadata()
+		if err != nil {
+			RespondWithDetailedError(w, http.StatusInternalServerError, "Error trying to get OAuth metadata", err.Error())
+			return
 		}
 
-		log.Warning("Token error: ", err)
+		response.AuthorizationEndpoint = metadata.AuthorizationEndpoint
+		response.LogoutEndpoint = metadata.LogoutEndpoint
+		response.LogoutRedirect = metadata.LogoutRedirect
+	case config.AuthStrategyLogin:
+		if conf.Server.Credentials.Username == "" && conf.Server.Credentials.Passphrase == "" {
+			response.SecretMissing = true
+		}
 	}
 
-	return http.StatusUnauthorized, ""
+	token := getTokenStringFromRequest(r)
+	if claims, _ := config.GetTokenClaimsIfValid(token); claims != nil {
+		response.SessionInfo = sessionInfo{
+			ExpiresOn: time.Unix(claims.ExpiresAt, 0).Format(time.RFC1123Z),
+			Username:  claims.Subject,
+		}
+	}
+
+	RespondWithJSON(w, http.StatusOK, response)
+}
+
+func Logout(w http.ResponseWriter, r *http.Request) {
+	_, err := r.Cookie(config.TokenCookieName)
+
+	if err != http.ErrNoCookie {
+		tokenCookie := http.Cookie{
+			Name:     config.TokenCookieName,
+			Value:    "",
+			Expires:  time.Unix(0, 0),
+			HttpOnly: true,
+			// SameSite: http.SameSiteStrictMode, ** Commented out because unsupported in go < 1.11
+		}
+		http.SetCookie(w, &tokenCookie)
+	}
+
+	// We need to perform an extra step to invalidate the user token when using OpenShift OAuth
+	conf := config.Get()
+	if conf.Auth.Strategy == config.AuthStrategyOpenshift {
+		code, err := performOpenshiftLogout(r)
+		if err != nil {
+			RespondWithError(w, code, err.Error())
+		} else {
+			RespondWithCode(w, code)
+		}
+	} else {
+		RespondWithCode(w, http.StatusNoContent)
+	}
 }

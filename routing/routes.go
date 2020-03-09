@@ -62,6 +62,105 @@ func NewRoutes() (r *Routes) {
 			false,
 		},
 
+		// swagger:route GET /authenticate Authenticate
+		// ---
+		// Endpoint to authenticate the user
+		//
+		//     Produces:
+		//     - application/json
+		//
+		//     Schemes: http, https
+		//
+		//    Security:
+		//     authorization: user, password
+		//
+		// responses:
+		//      500: internalError
+		//      200: tokenResponse
+		{
+			"Authenticate",
+			"GET",
+			"/api/authenticate",
+			handlers.Authenticate,
+			false,
+		},
+		// swagger:route POST /authenticate OpenshiftCheckToken
+		// ---
+		// Endpoint to check if a token from Openshift is working correctly
+		//
+		//     Produces:
+		//     - application/json
+		//
+		//     Schemes: http, https
+		//
+		// responses:
+		//      500: internalError
+		//      200: tokenResponse
+		{
+			"OpenshiftCheckToken",
+			"POST",
+			"/api/authenticate",
+			handlers.Authenticate,
+			false,
+		},
+		// swagger:route GET /logout Logout
+		// ---
+		// Endpoint to logout an user (unset the session cookie)
+		//
+		//     Schemes: http, https
+		//
+		// responses:
+		//      204: noContent
+		{
+			"Logout",
+			"GET",
+			"/api/logout",
+			handlers.Logout,
+			false,
+		},
+		// swagger:route GET /auth/info AuthenticationInfo
+		// ---
+		// Endpoint to get login info, such as strategy, authorization endpoints
+		// for OAuth providers and so on.
+		//
+		//     Consumes:
+		//     - application/json
+		//
+		//     Produces:
+		//     - application/json
+		//
+		//     Schemes: http, https
+		//
+		// responses:
+		//      500: internalError
+		//      200: authenticationInfo
+		{
+			"AuthenticationInfo",
+			"GET",
+			"/api/auth/info",
+			handlers.AuthenticationInfo,
+			false,
+		},
+		// swagger:route GET /status getStatus
+		// ---
+		// Endpoint to get the status of Kiali
+		//
+		//     Produces:
+		//     - application/json
+		//
+		//     Schemes: http, https
+		//
+		// responses:
+		//      500: internalError
+		//      200: statusInfo
+		{
+			"Status",
+			"GET",
+			"/api/status",
+			handlers.Root,
+			true,
+		},
+
 		{
 			"NamespaceList",
 			"GET",

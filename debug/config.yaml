@@ -16,6 +16,7 @@ server:
   port: 20002
   web_root: /kiali
   static_content_root_directory: /root/go/src/github.com/AsCat/acorn/console
+  cors_allow_all: true
 external_services:
   istio:
     url_service_version: http://istio-pilot.istio-system:8080/version
