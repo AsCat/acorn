@@ -168,6 +168,47 @@ func NewRoutes() (r *Routes) {
 			handlers.NamespaceList,
 			true,
 		},
+		// swagger:route GET /namespaces/{namespace}/workloads workloads workloadList
+		// ---
+		// Endpoint to get the list of workloads for a namespace
+		//
+		//     Produces:
+		//     - application/json
+		//
+		//     Schemes: http, https
+		//
+		// responses:
+		//      500: internalError
+		//      200: workloadListResponse
+		//
+		{
+			"WorkloadList",
+			"GET",
+			"/api/namespaces/{namespace}/workloads",
+			handlers.WorkloadList,
+			true,
+		},
+		// swagger:route GET /namespaces/{namespace}/workloads/{workload} workloads workloadDetails
+		// ---
+		// Endpoint to get the workload details
+		//
+		//     Produces:
+		//     - application/json
+		//
+		//     Schemes: http, https
+		//
+		// responses:
+		//      500: internalError
+		//      404: notFoundError
+		//      200: workloadDetails
+		//
+		{
+			"WorkloadDetails",
+			"GET",
+			"/api/namespaces/{namespace}/workloads/{workload}",
+			handlers.WorkloadDetails,
+			true,
+		},
 	}
 
 	return

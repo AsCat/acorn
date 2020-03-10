@@ -13,8 +13,10 @@ import (
 
 // Layer is a container for fast access to inner services
 type Layer struct {
+	Workload       WorkloadService
 	Namespace      NamespaceService
 	OpenshiftOAuth OpenshiftOAuthService
+	k8s            kubernetes.IstioClientInterface
 }
 
 // Global clientfactory and prometheus clients.
