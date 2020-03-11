@@ -17,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/version"
 	kube "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"net"
 	"os"
 
@@ -195,14 +194,6 @@ func ConfigClient() (*rest.Config, error) {
 	host, port := os.Getenv("KUBERNETES_SERVICE_HOST"), os.Getenv("KUBERNETES_SERVICE_PORT")
 	if len(host) == 0 || len(port) == 0 {
 		return nil, fmt.Errorf("unable to load in-cluster configuration, KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT must be defined")
-	}
-
-	if !kialiConfig.Get().InCluster && kialiConfig.Get().KubeConfigPath != "" {
-		config, err := clientcmd.BuildConfigFromFlags("", kialiConfig.Get().KubeConfigPath)
-		if err != nil {
-			return nil, err
-		}
-		return config, nil
 	}
 
 	return &rest.Config{
