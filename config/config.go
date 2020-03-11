@@ -262,15 +262,15 @@ type IstioComponentNamespaces map[string]string
 
 // Config defines full YAML configuration.
 type Config struct {
-	AdditionalDisplayDetails []AdditionalDisplayItem  `yaml:"additional_display_details,omitempty"`
-	API                      ApiConfig                `yaml:"api,omitempty"`
-	Auth                     AuthConfig               `yaml:"auth,omitempty"`
-	Deployment               DeploymentConfig         `yaml:"deployment,omitempty"`
-	Extensions               Extensions               `yaml:"extensions,omitempty"`
-	ExternalServices         ExternalServices         `yaml:"external_services,omitempty"`
-	Identity                 security.Identity        `yaml:",omitempty"`
-	InCluster                bool                     `yaml:"in_cluster,omitempty"`
-	KubeConfigPath           string                   `yaml:"kube_config_path,omitempty"`
+	AdditionalDisplayDetails []AdditionalDisplayItem `yaml:"additional_display_details,omitempty"`
+	API                      ApiConfig               `yaml:"api,omitempty"`
+	Auth                     AuthConfig              `yaml:"auth,omitempty"`
+	Deployment               DeploymentConfig        `yaml:"deployment,omitempty"`
+	Extensions               Extensions              `yaml:"extensions,omitempty"`
+	ExternalServices         ExternalServices        `yaml:"external_services,omitempty"`
+	Identity                 security.Identity       `yaml:",omitempty"`
+	InCluster                bool                    `yaml:"in_cluster,omitempty"`
+	//KubeConfigPath           string                   `yaml:"kube_config_path,omitempty"`
 	InstallationTag          string                   `yaml:"installation_tag,omitempty"`
 	IstioComponentNamespaces IstioComponentNamespaces `yaml:"istio_component_namespaces,omitempty"`
 	IstioLabels              IstioLabels              `yaml:"istio_labels,omitempty"`
@@ -283,8 +283,8 @@ type Config struct {
 // NewConfig creates a default Config struct
 func NewConfig() (c *Config) {
 	c = &Config{
-		InCluster:      true,
-		KubeConfigPath: "",
+		InCluster: true,
+		//KubeConfigPath: "",
 		IstioNamespace: "istio-system",
 		API: ApiConfig{
 			Namespaces: ApiNamespacesConfig{
@@ -349,9 +349,10 @@ func NewConfig() (c *Config) {
 			VersionLabelName: "version",
 		},
 		KubernetesConfig: KubernetesConfig{
-			Burst:                       200,
-			CacheDuration:               5 * 60,
-			CacheEnabled:                true,
+			Burst:         200,
+			CacheDuration: 5 * 60,
+			//#fixme：WaitForCacheSync  @root/go/gopath/pkg/mod/k8s.io/client-go@v0.17.0/tools/cache/shared_informer.go
+			CacheEnabled:                false,
 			CacheIstioTypes:             []string{"DestinationRule", "Gateway", "ServiceEntry", "VirtualService"},
 			CacheNamespaces:             []string{".*"},
 			CacheTokenNamespaceDuration: 10,
