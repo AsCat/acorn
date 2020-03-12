@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"fmt"
+	"github.com/AsCat/acorn/models"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -33,6 +35,32 @@ func WorkloadList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	RespondWithJSON(w, http.StatusOK, workloadList)
+}
+
+func WorkloadListSet(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+
+	// Get business layer
+	business, err := getBusiness(r)
+	if err != nil {
+		RespondWithError(w, http.StatusInternalServerError, "Workloads initialization error: "+err.Error())
+		return
+	}
+	namespaces := strings.Split(params["namespace"], "|")
+
+	workloadListSet := make([]models.WorkloadList, 0)
+	for _, namespace := range namespaces {
+		// Fetch and build workloads
+		workloadList, err := business.Workload.GetWorkloadList(namespace)
+		if err != nil {
+			handleErrorResponse(w, err)
+			return
+		}
+
+		workloadListSet = append(workloadListSet, workloadList)
+	}
+
+	RespondWithJSON(w, http.StatusOK, workloadListSet)
 }
 
 // WorkloadDetails is the API handler to fetch all details to be displayed, related to a single workload

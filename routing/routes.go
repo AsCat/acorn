@@ -188,6 +188,13 @@ func NewRoutes() (r *Routes) {
 			handlers.WorkloadList,
 			true,
 		},
+		{
+			"WorkloadListSet",
+			"GET",
+			"/api/multi-namespaces/{namespace}/workloads",
+			handlers.WorkloadListSet,
+			true,
+		},
 		// swagger:route GET /namespaces/{namespace}/workloads/{workload} workloads workloadDetails
 		// ---
 		// Endpoint to get the workload details
