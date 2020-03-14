@@ -216,6 +216,14 @@ func NewRoutes() (r *Routes) {
 			handlers.WorkloadDetails,
 			true,
 		},
+
+		{
+			"IstioList",
+			"GET",
+			"/api/istiods",
+			handlers.IstiodListGroupedByNamespace,
+			true,
+		},
 	}
 
 	return
