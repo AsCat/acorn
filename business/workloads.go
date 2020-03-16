@@ -62,6 +62,28 @@ func (in *WorkloadService) GetWorkloadList(namespace string) (models.WorkloadLis
 	return *workloadList, nil
 }
 
+func (in *WorkloadService) GetWorkloadDetailList(namespace string) (models.WorkloadDetailList, error) {
+	var err error
+	promtimer := internalmetrics.GetGoFunctionMetric("business", "WorkloadService", "GetWorkloadList")
+	defer promtimer.ObserveNow(&err)
+
+	workloadList := &models.WorkloadDetailList{
+		Namespace: models.Namespace{Name: namespace, CreationTimestamp: time.Time{}},
+		Workloads: []models.Workload{},
+	}
+	ws, err := fetchWorkloads(in.businessLayer, namespace, "")
+	if err != nil {
+		return *workloadList, err
+	}
+
+	for _, w := range ws {
+		w.PodCount = len(w.Pods)
+		workloadList.Workloads = append(workloadList.Workloads, *w)
+	}
+
+	return *workloadList, nil
+}
+
 // GetWorkload is the API handler to fetch details of a specific workload.
 // If includeServices is set true, the Workload will fetch all services related
 func (in *WorkloadService) GetWorkload(namespace string, workloadName string, includeServices bool) (*models.Workload, error) {
