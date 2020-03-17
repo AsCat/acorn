@@ -224,6 +224,22 @@ func NewRoutes() (r *Routes) {
 			handlers.IstiodListGroupedByNamespace,
 			true,
 		},
+
+		{
+			"IstioList",
+			"GET",
+			"/api/namespaces/{namespace}/pods/{podName}/controlz",
+			handlers.IstiodControlZByNamespacePod,
+			true,
+		},
+
+		{
+			"TestApi",
+			"GET",
+			"/api/test",
+			handlers.TestApi,
+			true,
+		},
 	}
 
 	return
