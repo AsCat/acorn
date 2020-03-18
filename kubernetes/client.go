@@ -5,6 +5,7 @@ import (
 	osapps_v1 "github.com/openshift/api/apps/v1"
 	osproject_v1 "github.com/openshift/api/project/v1"
 	osroutes_v1 "github.com/openshift/api/route/v1"
+	"io"
 	apps_v1 "k8s.io/api/apps/v1"
 	auth_v1 "k8s.io/api/authorization/v1"
 	batch_v1 "k8s.io/api/batch/v1"
@@ -28,6 +29,19 @@ var (
 	emptyListOptions = meta_v1.ListOptions{}
 	emptyGetOptions  = meta_v1.GetOptions{}
 )
+
+// ExecOptions passed to ExecWithOptions
+type ExecOptions struct {
+	Command       []string
+	Namespace     string
+	PodName       string
+	ContainerName string
+	Stdin         io.Reader
+	CaptureStdout bool
+	CaptureStderr bool
+	// If false, whitespace in std{err,out} will be removed.
+	PreserveWhitespace bool
+}
 
 type PodLogs struct {
 	Logs string `json:"logs,omitempty"`
@@ -104,6 +118,8 @@ type IstioClientInterface interface {
 	IsMaistraApi() bool
 	IsOpenShift() bool
 	UpdateIstioObject(api, namespace, resourceType, name, jsonPatch string) (IstioObject, error)
+
+	ExecWithOptions(options ExecOptions) (string, string, error)
 }
 
 // IstioClient is the client struct for Kubernetes and Istio APIs
