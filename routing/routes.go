@@ -234,6 +234,14 @@ func NewRoutes() (r *Routes) {
 		},
 
 		{
+			"IstioList",
+			"GET",
+			"/api/namespaces/{namespace}/pods/{podName}/memz",
+			handlers.IstiodMemZByNamespacePod,
+			true,
+		},
+
+		{
 			"TestApi",
 			"GET",
 			"/api/test",
