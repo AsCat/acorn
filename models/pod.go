@@ -13,9 +13,12 @@ type Pods []*Pod
 
 // Pod holds a subset of v1.Pod data that is meaningful in Kiali
 type Pod struct {
-	Name                string            `json:"name"`
-	Labels              map[string]string `json:"labels"`
-	CreatedAt           string            `json:"createdAt"`
+	Name      string            `json:"name"`
+	Labels    map[string]string `json:"labels"`
+	CreatedAt string            `json:"createdAt"`
+	HostIP    string            `json:"hostIP"`
+	PodIP     string            `json:"podIP"`
+	//HostAliases			[]*HostAliases	  `json:"hostAliases"`
 	CreatedBy           []Reference       `json:"createdBy"`
 	Containers          []*ContainerInfo  `json:"containers"`
 	IstioContainers     []*ContainerInfo  `json:"istioContainers"`
@@ -24,6 +27,11 @@ type Pod struct {
 	AppLabel            bool              `json:"appLabel"`
 	VersionLabel        bool              `json:"versionLabel"`
 	Annotations         map[string]string `json:"annotations"`
+}
+
+type HostAliases struct {
+	Hostnames []string `json:"host"`
+	IP        string   `json:"ip"`
 }
 
 // Reference holds some information on the pod creator
@@ -60,6 +68,19 @@ type sideCarStatus struct {
 // Parse extracts desired information from k8s Pod info
 func (pod *Pod) Parse(p *core_v1.Pod) {
 	pod.Name = p.Name
+
+	// copy host info
+	//if p.Spec.HostAliases != nil {
+	//	for _, ha := range p.Spec.HostAliases {
+	//		pod.HostAliases = append(pod.HostAliases, &HostAliases{
+	//			Hostnames: ha.Hostnames,
+	//			IP:        ha.IP,
+	//		})
+	//	}
+	//}
+	pod.PodIP = p.Status.PodIP
+	pod.HostIP = p.Status.HostIP
+
 	pod.Labels = p.Labels
 	pod.Annotations = p.Annotations
 	pod.CreatedAt = formatTime(p.CreationTimestamp.Time)
